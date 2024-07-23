@@ -1,5 +1,82 @@
-# random collection of useful functions
+# functions related to analyzing N-body simulation data
 import numpy as np
+import pynbody as pn
+from matplotlib import pyplot as plt
+
+def read_data(path):
+    """
+    Read profile data stored in csv file
+
+    Inputs:
+    * path (string): path to the file
+
+    Outputs:
+    * (Dict): Data as dictionary object
+    """
+    dict = {}
+    dict['header'] = {}
+    # get header:
+    with open(path, 'r') as f:
+        for line in f:
+            if line.startswith('#') and '=' in line:
+                key, value = line.strip('#').split('=')
+                key = key.strip()
+                value = value.strip()
+                if key in ('MVIR','RVIR','z','h0'):
+                    dict['header'][key] = float(value)
+                else:
+                    break
+    Mcode_to_physMsun = 1e10/dict['header']['h0']
+    Dcode_to_physKpc = 1./dict['header']['h0']/(1.+dict['header']['z'])
+    Rhocode_to_phys = Mcode_to_physMsun/Dcode_to_physKpc**3
+    # get data:
+    data = np.loadtxt(path, delimiter=',', dtype='float', comments='#', usecols=(0,1,2,3,4,5,6,7,8,9,10,11))
+    DM_r0,DM_r1,DM_r,DM_rho,Bar_r0,Bar_r1,Bar_r,Bar_rho,Tot_r0,Tot_r1,Tot_r,Tot_rho = data.T
+    dict['DM_r'] = DM_r 
+    dict['DM_rho'] = DM_rho 
+    dict['Bar_r'] = Bar_r 
+    dict['Bar_rho'] = Bar_rho 
+    dict['Tot_r'] = Tot_r 
+    dict['Tot_rho'] = Tot_rho 
+    return dict
+
+from scipy.integrate import simpson
+def get_mass(r_arr, dens_arr, r):
+    """
+    Calculate total mass enclosed in r
+
+    Inputs:
+    * r_arr (Array, radii)
+    * dens_arr (Array, densities)
+    * r (float)
+
+    Outputs:
+    * M (float)
+    """
+    # remove all nans:
+    r_arr = np.nan_to_num(r_arr, nan=0)
+    dens_arr = np.nan_to_num(dens_arr, nan=0)
+    M_arr = np.zeros_like(dens_arr)
+    dMdr = 4*np.pi*dens_arr*r_arr**2
+
+    # get index of r_arr closest to r:
+    idx = np.argmin(np.abs(r_arr-r))
+    if idx == 0:
+        return 0
+    else:
+        return simpson(dMdr[:idx], x=r_arr[:idx])
+
+def mean_density(r_arr, rho_arr, r):
+    """
+    Return the mean density within r
+    
+    Inputs:
+    * r_arr (Array, radii)
+    * dens_arr (Array, densities)
+    * r (float)
+    """
+    encl_mass = get_mass(r_arr, rho_arr, r)
+    return 3*encl_mass/(4*np.pi*r**3)
 
 def cm(snap):
     # return center of mass from a pynbody SimSnap
@@ -14,129 +91,8 @@ def recenter_snap(snap):
     snap['x'] -= cm_x
     snap['y'] -= cm_y
     snap['z'] -= cm_z
-    
-# Print iterations progress
-def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, length = 100, fill = '█', printEnd = "\r"):
-    """
-    Call in a loop to create terminal progress bar
-    @params:
-        iteration   - Required  : current iteration (Int)
-        total       - Required  : total iterations (Int)
-        prefix      - Optional  : prefix string (Str)
-        suffix      - Optional  : suffix string (Str)
-        decimals    - Optional  : positive number of decimals in percent complete (Int)
-        length      - Optional  : character length of bar (Int)
-        fill        - Optional  : bar fill character (Str)
-        printEnd    - Optional  : end character (e.g. "\r", "\r\n") (Str)
-    """
-    percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
-    filledLength = int(length * iteration // total)
-    bar = fill * filledLength + '-' * (length - filledLength)
-    print(f'\r{prefix} |{bar}| {percent}% {suffix}', end = printEnd)
-    # Print New Line on Complete
-    if iteration == total: 
-        print()
-
-import h5py
-def write_IC_hdf5(filename, data):
- def ifset(d,key):
-  if key in d.keys():
-   result=d[key]
-  else:
-   result=None
-   if key in ['lt','fmt']:  #for plot
-    result=''
-  return result
-
- def ifset2(d,key,value):
-  if value is None:
-   result=ifset(d,key)
-  else:
-   result=value
-  return result
-
- if isinstance(data, dict):
-  data=[data]
-
- BoxSize = None
- NumPartType = 6
- MassTable = np.zeros(NumPartType, dtype = float)
- NumPart = np.zeros(NumPartType, dtype = int)
- 
- for d in data:
-  BoxSize = ifset2(d, 'BoxSize', BoxSize)
-  i = d['PartType']
-  MassTable[i] = d['PartMass']
-  NumPart[i] = d['count']
-  
- file = h5py.File(filename+'.hdf5','w')
-
- group = file.create_group("Header")
- if BoxSize is not None:
-  group.attrs.create("BoxSize", BoxSize, shape=None, dtype=h5py.h5t.IEEE_F64LE)
- else:
-  group.attrs.create("BoxSize", 0, shape=None, dtype=h5py.h5t.IEEE_F64LE)
- group.attrs.create("Flag_Cooling", 0, shape=None, dtype=h5py.h5t.STD_I32LE)
- group.attrs.create("Flag_DoublePrecision", 0, shape=None, dtype=h5py.h5t.STD_I32LE)
- group.attrs.create("Flag_Feedback", 0, shape=None, dtype=h5py.h5t.STD_I32LE)
- group.attrs.create("Flag_IC_Info", 0, shape=None, dtype=h5py.h5t.STD_I32LE)
- group.attrs.create("Flag_Metals", 0, shape=None, dtype=h5py.h5t.STD_I32LE) #in makegal ics is 1
- group.attrs.create("Flag_Sfr", 0, shape=None, dtype=h5py.h5t.STD_I32LE)
- group.attrs.create("Flag_StellarAge", 0, shape=None, dtype=h5py.h5t.STD_I32LE)
- group.attrs.create("HubbleParam", 1, shape=None, dtype=h5py.h5t.IEEE_F64LE)
- group.attrs.create("MassTable", MassTable, shape=None,
-                                                     dtype=h5py.h5t.IEEE_F64LE)
- group.attrs.create("NumFilesPerSnapshot", 1, shape=None, dtype=h5py.h5t.STD_I32LE)
- group.attrs.create("NumPart_ThisFile", NumPart, shape=None, dtype=h5py.h5t.STD_I32LE)
- group.attrs.create("NumPart_Total", NumPart, shape=None, dtype=h5py.h5t.STD_U32LE)
- group.attrs.create("NumPart_Total_HighWord", (0,0,0,0,0,0), shape=None, dtype=h5py.h5t.STD_U32LE)
- group.attrs.create("Omega0", 0, shape=None, dtype=h5py.h5t.IEEE_F64LE)
- group.attrs.create("OmegaLambda", 0, shape=None, dtype=h5py.h5t.IEEE_F64LE)
- group.attrs.create("Redshift", 0, shape=None, dtype=h5py.h5t.IEEE_F64LE)
- group.attrs.create("Time", 0, shape=None, dtype=h5py.h5t.IEEE_F64LE)
-
- ID_offset = 0
- for d in data:
-  group = file.create_group("PartType"+str(d['PartType']))
-  dataset = group.create_dataset("Coordinates", (d['count'],3), data=d['Coordinates'],
-                                                            dtype=h5py.h5t.IEEE_F32LE)
-  dataset = group.create_dataset("ParticleIDs", (d['count'],),
-                   data=np.array(range(ID_offset,ID_offset+d['count'])), dtype=h5py.h5t.STD_I32BE)
-  ID_offset += d['count']
-  dataset = group.create_dataset("Velocities", (d['count'],3), data=d['Velocities'],
-                                                            dtype=h5py.h5t.IEEE_F32LE)
-  if d["PartType"] == 0:
-   dataset = group.create_dataset("InternalEnergy", (d['count'],),
-                   data=d["InternalEnergy"], dtype=h5py.h5t.IEEE_F32LE)
- file.close()
-
-def read_IC_hdf5(filename):
- data = {}
- file = h5py.File(filename,'r')
- keys = list(file.keys())
- for key in keys:
-  if key == 'Header':
-   header = dict(file['Header'].attrs.items())
-   data['Header'] = header
-  else:
-   partData = file.get(key)
-   partKeys = list(partData.keys())
-   data[key] = {}
-   for partKey in partKeys:
-    data[key][partKey] = np.array(partData.get(partKey))
- file.close()
- return data
-    
-def append_to_new_line(filename, text):
-    # Open the file in append mode
-    with open(filename, 'a') as file:
-        # Add a newline character before the text if the file isn't empty
-        file.write('\n' + text)
 
 def dens_profile(x, y, z, mass, recenter=False):
-    import pynbody as pn
-    import numpy as np
-    from matplotlib import pyplot as plt
     """
     This is a wrapper for the pynbody profile function
     which can be used to plot a 3d density profile from some 
@@ -156,9 +112,6 @@ def dens_profile(x, y, z, mass, recenter=False):
     plt.loglog(p['rbins'], Hernquist(p['rbins']))
     plt.xlabel('r [kpc]')
     plt.ylabel(r'$\rho$ [M$_\odot$ kpc$^{-3}$]')
-
-def Hernquist(r): # Hernquist density profile 
-    return 1/(r * (1+r)**3)
 
 import glob
 import os
@@ -422,6 +375,3 @@ def NFW_Mvir_c_to_rs_rhos(Mvir, c, rho_c=130, Delta=100):
     rho_s = Delta * rho_c * c * (1+c)**3
     r_s = (Mvir/(4*np.pi*rho_s*( np.log(1+c) - c/(1+c)) ))**(1/3)
     return r_s, rho_s
-
-    
-    

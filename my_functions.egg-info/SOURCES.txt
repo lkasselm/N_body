@@ -1,4 +1,9 @@
 setup.py
+my_functions/Nbody.py
+my_functions/__init__.py
+my_functions/hdf5.py
+my_functions/phys.py
+my_functions/utility.py
 my_functions.egg-info/PKG-INFO
 my_functions.egg-info/SOURCES.txt
 my_functions.egg-info/dependency_links.txt
